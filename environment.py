@@ -38,7 +38,7 @@ class CircularDots(object):
 		if T is None:
 			T = self.T
 
-		indices = np.random.randint(max=self.n_dots, size=(bs, T))
+		indices = np.random.randint(self.n_dots, size=(bs, T))
 		positions = self.dot_positions[indices]
 		encodings = self.encoder(sequences_positions)
 
