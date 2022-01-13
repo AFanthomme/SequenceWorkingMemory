@@ -13,11 +13,11 @@ class Encoder(tch.nn.Module):
 
 	def forward(self, input_batch):
 		return self.activation(self.layer(input_batch))
-		
+
 
 
 class CircularDots(object):
-	"""CircularDots environment class 
+	"""CircularDots environment class
 		* n_dots : number of dots on the circle to consider
 		* T : length of sequences (can be overridden)
 
@@ -31,7 +31,7 @@ class CircularDots(object):
 		for i in range(self.n_dots):
 			theta = 2 * np.pi * i / self.n_dots
 			self.dot_positions[i] = np.array([np.cos(theta), np.sin(theta)])
-			
+
 		self.encoder = Encoder()
 
 	def get_sequences(self, bs=64, T=None):
@@ -40,7 +40,7 @@ class CircularDots(object):
 
 		indices = np.random.randint(self.n_dots, size=(bs, T))
 		positions = self.dot_positions[indices]
-		encodings = self.encoder(sequences_positions)
+		encodings = self.encoder(positions)
 
 		return encodings, positions, indices
 
@@ -48,8 +48,3 @@ if __name__ == '__main__':
 	env = CircularDots(n_dots=6, T=3)
 	encodings, positions, indices = env.get_sequences(bs=10)
 	print(indices[0], positions[0], encodings[0].shape)
-
-
-
-
-
