@@ -40,7 +40,7 @@ class CircularDots(object):
 
 		indices = np.random.randint(self.n_dots, size=(bs, T))
 		positions = self.dot_positions[indices]
-		encodings = self.encoder(positions)
+		encodings = self.encoder(tch.from_numpy(positions).cuda()).cpu().numpy()
 
 		return encodings, positions, indices
 
