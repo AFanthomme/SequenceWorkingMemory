@@ -8,7 +8,7 @@ class Encoder(tch.nn.Module):
 		super(Encoder, self).__init__()
 		self.encoding_size = encoding_size
 		self.in_size = in_size
-		self.layer = tch.nn.linear(self.in_size, self.encoding_size)
+		self.layer = tch.nn.Linear(self.in_size, self.encoding_size)
 		self.activation = tch.nn.ReLU
 
 	def forward(self, input_batch):
