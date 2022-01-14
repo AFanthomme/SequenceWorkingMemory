@@ -33,6 +33,7 @@ class CircularDots(object):
 			self.dot_positions[i] = np.array([np.cos(theta), np.sin(theta)])
 
 		self.encoder = Encoder()
+		
 
 	def get_sequences(self, bs=64, T=None):
 		if T is None:
