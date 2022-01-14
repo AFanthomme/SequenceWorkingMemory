@@ -8,8 +8,8 @@ class Encoder(tch.nn.Module):
 		super(Encoder, self).__init__()
 		self.encoding_size = encoding_size
 		self.in_size = in_size
-		self.layer = tch.nn.Linear(self.in_size, self.encoding_size)
-		self.activation = tch.nn.ReLU
+		self.layer = tch.nn.Linear(self.in_size, self.encoding_size).cuda()
+		self.activation = tch.nn.ReLU()
 
 	def forward(self, input_batch):
 		return self.activation(self.layer(input_batch))
@@ -40,11 +40,12 @@ class CircularDots(object):
 
 		indices = np.random.randint(self.n_dots, size=(bs, T))
 		positions = self.dot_positions[indices]
-		encodings = self.encoder(tch.from_numpy(positions).cuda()).cpu().numpy()
+		encodings = self.encoder(tch.from_numpy(positions).float().cuda())
 
 		return encodings, positions, indices
 
 if __name__ == '__main__':
 	env = CircularDots(n_dots=6, T=3)
 	encodings, positions, indices = env.get_sequences(bs=10)
-	print(indices[0], positions[0], encodings[0].shape)
+	# print(indices[0], positions[0], encodings[0].shape)
+	print(indices.shape, positions.shape, encodings.shape)
