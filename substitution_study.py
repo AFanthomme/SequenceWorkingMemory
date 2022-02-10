@@ -58,6 +58,7 @@ def substitution_study(seed=0, folder='out/with_TP_encoder/', n_dots = 10, T = 3
             else:
                 encoding_size = true_role_size * true_filler_size
 
+        folder += 'n_dots_{}_T_{}/'.format(n_dots, T)   
 
         # env = CircularDots(n_dots=n_dots, T=T, observation_size=observation_size, load_from=folder+'environment.pt')
         # sequence_encoding_size = 32*32
@@ -73,23 +74,23 @@ def substitution_study(seed=0, folder='out/with_TP_encoder/', n_dots = 10, T = 3
 
     elif folder =='out/with_RNN_encoder/':
         observation_size = 128
-        decoder_state_size = 128
+        decoder_state_size = 64
+        folder += 'n_dots_{}_T_{}_enc_size_{}/'.format(n_dots, T, encoding_size)   
 
-        enc = RNNSequenceEncoder(in_size=env.observation_size, state_size=encoding_size)
+        enc = RNNSequenceEncoder(in_size=observation_size, state_size=encoding_size)
         dec = Decoder(in_size=encoding_size, state_size=decoder_state_size)
         sub = TensorProductDecompositionNetwork(in_size=observation_size, role_size=tpdn_role_size, filler_size=tpdn_filler_size, T=T, 
                     n_dots=n_dots, out_size=encoding_size, device=device, force_identity_out=force_identity_out)
         sub_ref = TensorProductDecompositionNetwork(in_size=observation_size, role_size=tpdn_role_size, filler_size=tpdn_filler_size, T=T,
                     n_dots=n_dots, out_size=encoding_size, device=device, force_identity_out=force_identity_out)
 
-    folder += 'n_dots_{}_T_{}/'.format(n_dots, T)
     env = CircularDots(n_dots=n_dots, T=T, observation_size=observation_size, load_from=folder+'environment.pt')
     sub_ref.load_state_dict(sub.state_dict())
     enc.load_state_dict(tch.load(folder+'encoder.pt'))
     dec.load_state_dict(tch.load(folder+'decoder.pt'))
-
     folder = folder + 'substitution_study/id_out_{}_train_reps_{}/tpdn_sizes_{}_{}/'.format(force_identity_out,
                              train_representations, tpdn_role_size, tpdn_filler_size)
+
     os.makedirs(folder, exist_ok=True)
 
     # Baselines
@@ -98,25 +99,13 @@ def substitution_study(seed=0, folder='out/with_TP_encoder/', n_dots = 10, T = 3
     errors_fullset = np.zeros(n_epochs)
 
 
-    # Baseline: initial encoder
-
-
-    if n_dots ** T < 10**5:
-        tmp = []
-        sequence_generator = env.generate_all_sequences(bs=bs)
-        for observations, sequences in sequence_generator:
-            positions = env.dot_positions[sequences]
-            encodings = enc(observations)
-            outputs = dec(encodings)
-            tmp.append(loss_fn(outputs, positions).item())
-    else:
-        tmp = np.zeros(50)
-        with tch.set_grad_enabled(False):
-            for b in range(50):
-                X, y, indices = env.get_sequences(bs=bs, T=T) 
-                encodings = enc(X)
-                out = dec(encodings)
-                tmp[b] = loss_fn(out, y).detach().cpu().item()
+    tmp = []
+    sequence_generator = env.generate_all_sequences(bs=bs)
+    for observations, sequences in sequence_generator:
+        positions = env.dot_positions[sequences]
+        encodings = enc(observations)
+        outputs = dec(encodings)
+        tmp.append(loss_fn(outputs, positions).item())
 
     ref_mean = np.mean(np.log(tmp))
     ref_std = np.std(np.log(tmp))
@@ -128,66 +117,31 @@ def substitution_study(seed=0, folder='out/with_TP_encoder/', n_dots = 10, T = 3
 
     #    a) Generate all sequences (keep them, not the observations since they are easy to get)
     n_seqs = n_dots**T
+
+    # This to ensure we don't start enumerating something absurdly large
+    if n_seqs > 10**5:
+        n_seqs = 10**5
+
     all_sequences = np.zeros((n_seqs, T), np.int32)
     sequence_generator = env.generate_all_sequences(bs=bs)
 
     tpr_size = sub.filler_size * sub.role_size
     rep_size = encoding_size
 
-    # I_matrix = tch.zeros(tpr_size, tpr_size).to(enc.device)
-    # h_matrix = tch.zeros(tpr_size, rep_size).to(enc.device) # W is I^{-1} h, size (rep_size, tpr_size)
-
     all_ls = np.zeros((n_seqs, encoding_size))
     all_ps = np.zeros((n_seqs, tpr_size))
 
     count = 0
     debug = 0
-    # print('in sequence generator')
+
     for observations, sequences in sequence_generator:
-        # # print(sequences.shape)
-        # debug += sequences.shape[0]
-        # # print(debug, env.n_seqs)
-        all_sequences[count*bs:min((count+1)*bs, n_seqs)] = sequences
-        # # print(observations.shape)
-        # # print(enc.__dict__.items())
+        all_sequences[count*bs:min((count+1)*bs, n_seqs)] = sequences.detach().cpu().numpy()
         l = enc(observations)[:, -1, :]
         p = sub_ref.get_underlying_TP(observations)[:, -1, :]
         all_ls[count*bs:min((count+1)*bs, n_seqs)] = l.detach().cpu().numpy()
         all_ps[count*bs:min((count+1)*bs, n_seqs)] = p.detach().cpu().numpy()
 
-
-
-        # # print('lshape', l.shape)
-        # # print('pshape', p.shape)
-        # # print('I_matrix shape', I_matrix.shape)
-
-        # # h_matrix = h_matrix + p.T.mm(p)
-        # h_matrix = h_matrix + l.T.mm(p)
-        # # I_matrix = I_matrix + l.T.mm(p)
-        # I_matrix = I_matrix + p.T.mm(p)
-
         count += 1
-
-    # I_matrix /= n_seqs
-    # h_matrix /= n_seqs
-
-    # print(len(tch.linalg.eigh(I_matrix)[0]), tch.linalg.eigh(I_matrix)[0])
-    # print(tch.linalg.eigh(I_matrix)[0].abs().min())
-
-    # print(n_seqs, tpr_size)
-
-    # print((I_matrix**2).mean(), (h_matrix**2).mean(), (tch.linalg.inv(I_matrix)**2).mean())
-    # best_W = tch.linalg.inv(I_matrix).mm(h_matrix).T
-
-
-    # print('Starting lstsq fit')
-    # best_W = np.linalg.lstsq(all_ps, all_ls, rcond=None)[0].T
-    # best_W = tch.from_numpy(best_W).to(sub.device).float()
-
-
-    # all_ps = tch.from_numpy(all_ls).to(sub.device).float()
-    # all_ls = tch.from_numpy(all_ls).to(sub.device).float()
-    # best_W = tch.linalg.lstsq(all_ls, all_ps, rcond=None)[0].T
 
     regressor = LinearRegression()
     regressor.fit(all_ps, all_ls)
@@ -196,18 +150,8 @@ def substitution_study(seed=0, folder='out/with_TP_encoder/', n_dots = 10, T = 3
     best_bias = tch.from_numpy(best_bias).float().to(sub.device)
     best_W = tch.from_numpy(best_W).to(sub.device).float()
 
-    # print(best_bias)
-
-    # regressor.fit(all_ls, all_ps)
-    # best_W = regressor.coef_.T
-
-    # print(best_W)
-    # print(best_W.shape)
-
-    # print('before, seed{}'.format(seed), sub.out_layer.weight[:10])
     sub_ref.out_layer.weight = Parameter(best_W)
     sub_ref.out_layer.bias = Parameter(best_bias)
-    # print('after, seed{}'.format(seed), sub_ref.out_layer.weight[:10])
     os.makedirs(folder+'best_linear_tpdn', exist_ok=True)
     tch.save(sub_ref.state_dict(), folder+'best_linear_tpdn/seed{}.pt'.format(seed))
 
@@ -217,7 +161,6 @@ def substitution_study(seed=0, folder='out/with_TP_encoder/', n_dots = 10, T = 3
             X, y, indices = env.get_sequences(bs=bs, T=T) 
             encodings = sub_ref(X)
             out = dec(encodings)
-            # print(loss_fn(out, y))
             sub_ref_loss[b] = loss_fn(out, y).detach().cpu().item()
 
     sub_ref_mean = np.mean(np.log(sub_ref_loss))
@@ -238,8 +181,6 @@ def substitution_study(seed=0, folder='out/with_TP_encoder/', n_dots = 10, T = 3
         X, y, indices = env.get_sequences(bs=bs, T=T) 
 
         substitute_encoding = sub(X)
-        # print(sequence_encodings[0, :, 1])
-        # print(sequence_encodings[0, :, 0])
 
         opt.zero_grad()
         out = dec(substitute_encoding)
@@ -252,8 +193,6 @@ def substitution_study(seed=0, folder='out/with_TP_encoder/', n_dots = 10, T = 3
         # i) distance to starting rep networks
         # ii) distance to starting linear layer
         # iii) distance to optimal linear layer for current rep (not too often, this will probably be a slow)
-
-
 
         if (epoch) % 100 == 0:
             tch.save(sub.state_dict(), folder+'TPDN_seed{}.pt'.format(seed))
@@ -288,13 +227,10 @@ def substitution_study(seed=0, folder='out/with_TP_encoder/', n_dots = 10, T = 3
 
 
 
-# Look at the effect of changing the role_representation size?
-
-
 
 
 if __name__ == '__main__':
-    folder='out/with_TP_encoder/'
+    # folder='out/with_TP_encoder/'
     # partial_sub_study = partial(substitution_study, true_role_size=32, tpdn_role_size=8, folder=folder, n_epochs=10000, bs=512, force_identity_out=False, train_representations=True, lr=3e-4)
     # partial_sub_study = partial(substitution_study, true_role_size=32, tpdn_role_size=32, folder=folder, n_epochs=10000, bs=512, force_identity_out=False, train_representations=True, lr=3e-4)
     # partial_sub_study = partial(substitution_study, true_role_size=32, tpdn_role_size=64, folder=folder, n_epochs=10000, bs=512, force_identity_out=False, train_representations=True, lr=3e-4)
@@ -313,21 +249,27 @@ if __name__ == '__main__':
 
 
 
-    partial_sub_study = partial(substitution_study, T=10, n_dots=6, true_role_size=32, tpdn_filler_size=6, tpdn_role_size=10, folder=folder, n_epochs=10000, bs=512, force_identity_out=False, train_representations=True, lr=3e-4)
+    # partial_sub_study = partial(substitution_study, T=10, n_dots=6, true_role_size=32, tpdn_filler_size=6, tpdn_role_size=10, folder=folder, n_epochs=10000, bs=512, force_identity_out=False, train_representations=False, lr=3e-4)
+    # partial_sub_study = partial(substitution_study, T=10, n_dots=6, true_role_size=32, tpdn_filler_size=8, tpdn_role_size=12, folder=folder, n_epochs=10000, bs=512, force_identity_out=False, train_representations=False, lr=3e-4)
+    # partial_sub_study = partial(substitution_study, T=10, n_dots=6, true_role_size=32, tpdn_filler_size=16, tpdn_role_size=12, folder=folder, n_epochs=10000, bs=512, force_identity_out=False, train_representations=False, lr=3e-4)
+    # with Pool(8) as pool:
+    #     pool.map(partial_sub_study, range(8))
+
+
+
+
+
+    folder='out/with_RNN_encoder/'
+    # partial_sub_study = partial(substitution_study, T=10, n_dots=8, encoding_size=32, tpdn_role_size=8, folder=folder, n_epochs=5000, bs=512, force_identity_out=False, train_representations=False, lr=3e-4)
+    # partial_sub_study = partial(substitution_study, T=10, n_dots=8, encoding_size=32, tpdn_role_size=16, tpdn_filler_size=16,
+    #              folder=folder, n_epochs=5000, bs=512, force_identity_out=False, train_representations=True, lr=3e-3)
+
+    partial_sub_study = partial(substitution_study, T=10, n_dots=4, encoding_size=64, tpdn_role_size=16, tpdn_filler_size=16,
+                 folder=folder, n_epochs=5000, bs=512, force_identity_out=False, train_representations=True, lr=3e-3)
+
+
     with Pool(8) as pool:
         pool.map(partial_sub_study, range(8))
-
-
-
-
-
-    # folder='out/with_RNN_encoder/'
-    # partial_sub_study = partial(substitution_study, true_role_size=32, encoding_size=1024, tpdn_role_size=32, folder=folder, n_epochs=5000, bs=512, force_identity_out=False, train_representations=False, lr=3e-4)
-    # partial_sub_study = partial(substitution_study, true_role_size=32, encoding_size=1024, tpdn_role_size=64, folder=folder, n_epochs=5000, bs=512, force_identity_out=False, train_representations=False, lr=3e-4)
-    # partial_sub_study = partial(substitution_study, true_role_size=32, encoding_size=1024, tpdn_role_size=8, folder=folder, n_epochs=5000, bs=512, force_identity_out=False, train_representations=False, lr=3e-4)
-    # partial_sub_study = partial(substitution_study, true_role_size=32, encoding_size=1024, tpdn_role_size=128, folder=folder, n_epochs=5000, bs=512, force_identity_out=False, train_representations=False, lr=3e-4)
-    # partial_sub_study = partial(substitution_study, true_role_size=32, encoding_size=1024, tpdn_role_size=16, folder=folder, n_epochs=5000, bs=512, force_identity_out=False, train_representations=False, lr=3e-4)
-    # partial_sub_study = partial(substitution_study, true_role_size=32, encoding_size=1024, tpdn_role_size=24, folder=folder, n_epochs=5000, bs=512, force_identity_out=False, train_representations=False, lr=3e-4)
  
  
  
@@ -339,7 +281,7 @@ if __name__ == '__main__':
  
 
 
-    folder='out/with_TP_encoder/'
+    # folder='out/with_TP_encoder/'
     # partial_sub_study = partial(substitution_study, tpdn_role_size=4, tpdn_filler_size=4, true_role_size=32, folder=folder, n_epochs=10000, bs=512,
     #                              force_identity_out=False, train_representations=False, lr=3e-4)
     # partial_sub_study = partial(substitution_study, tpdn_role_size=4, tpdn_filler_size=10, true_role_size=32, folder=folder, n_epochs=10000, bs=512,
@@ -357,14 +299,14 @@ if __name__ == '__main__':
     # partial_sub_study = partial(substitution_study, tpdn_role_size=2, tpdn_filler_size=12, true_role_size=32, folder=folder, n_epochs=10000, bs=512,
     #                              force_identity_out=False, train_representations=False, lr=3e-4)   
 
-    partial_sub_study = partial(substitution_study, tpdn_role_size=3, tpdn_filler_size=12, true_role_size=32, folder=folder, n_epochs=10000, bs=512,
-                                 force_identity_out=False, train_representations=False, lr=3e-4)   
+    # partial_sub_study = partial(substitution_study, tpdn_role_size=3, tpdn_filler_size=12, true_role_size=32, folder=folder, n_epochs=10000, bs=512,
+    #                              force_identity_out=False, train_representations=False, lr=3e-4)   
 
 
 
 
-    with Pool(8) as pool:
-        pool.map(partial_sub_study, range(8))
+    # with Pool(8) as pool:
+    #     pool.map(partial_sub_study, range(8))
 
 
 

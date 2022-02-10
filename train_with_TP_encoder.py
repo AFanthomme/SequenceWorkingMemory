@@ -21,26 +21,35 @@ from copy import deepcopy
 folder = 'out/with_TP_encoder/'
 
 if __name__ == '__main__':
-    n_epochs = 10000
+    n_epochs = 30000
+    lr = 5e-4
     bs = 256
 
-    n_dots = 6
+    # n_dots = 6
+    # T = 10
+
+    n_dots = 8
     T = 10
 
-    # n_dots = 10
-    # T = 3
-    observation_size = 128
-    decoder_state_size = 128
-    role_size = 32
+    # use_obs_net = True
+    # observation_size = 128
 
-    folder += 'n_dots_{}_T_{}/'.format(n_dots, T)
+    use_obs_net = False
+    observation_size = 2
+
+    lr = 8e-4
+    decoder_state_size = 64
+    filler_size = 2
+    role_size = 10
+
+    folder += 'n_dots_{}_T_{}_sizes_{}_{}/'.format(n_dots, T, role_size, filler_size)
     os.makedirs(folder, exist_ok=True)
 
-    env = CircularDots(observation_size=observation_size, n_dots=n_dots, T=T)
-    sequence_encoder = TensorSequenceEncoder(in_size=observation_size, T=T, role_size=role_size)
+    env = CircularDots(observation_size=observation_size, n_dots=n_dots, T=T, use_obs_net=use_obs_net)
+    sequence_encoder = TensorSequenceEncoder(in_size=observation_size, T=T, role_size=role_size, filler_size=filler_size)
     net = Decoder(in_size=sequence_encoder.out_size, state_size=decoder_state_size)
 
-    opt = Adam(net.parameters(), lr=2e-4)
+    opt = Adam(net.parameters(), lr=lr)
     loss_fn = MSELoss()
     losses = np.zeros(n_epochs)
 

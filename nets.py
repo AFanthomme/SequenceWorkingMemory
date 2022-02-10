@@ -1,7 +1,11 @@
 import torch as tch 
 from torch.nn import Module, Linear, ReLU, Identity, Parameter
 
-device = tch.device('cuda:0')
+# if tch.cuda.is_available():
+# device = tch.device('cuda:0')
+# else:
+device = tch.device('cpu')
+
 
 class Decoder(Module):
     def __init__(self, in_size=1024, state_size=64):
@@ -37,7 +41,7 @@ class Decoder(Module):
 
 class TensorSequenceEncoder(Module):
     "Map a sequence of encodings into a Tensor encoding of said sequence"
-    def __init__(self, in_size=64, role_size=32, filler_size=None, T=3, device=device):
+    def __init__(self, in_size=64, role_size=32, filler_size=None, T=3, trainable=False, device=device): #, orthogonalize=True
         super(TensorSequenceEncoder, self).__init__()
         self.in_size = in_size
         self.role_size = role_size
@@ -53,12 +57,19 @@ class TensorSequenceEncoder(Module):
         # self.role_bindings = Parameter(tmp, requires_grad=False)
 
         self.role_rep_net = Linear(T, self.role_size).to(self.device)
-        self.role_rep_net.weight.requires_grad = False
-        self.role_rep_net.bias.requires_grad = False
+
+        # self.orthogonalize = orthogonalize
+        self.trainable = trainable
+
+        # if orthogonalize:
+            # self.role_rep_net.weight = 
+
+        self.role_rep_net.weight.requires_grad = trainable
+        self.role_rep_net.bias.requires_grad = trainable
         
         self.filler_rep_net = Linear(self.in_size, self.filler_size).to(self.device)
-        self.filler_rep_net.weight.requires_grad = False
-        self.filler_rep_net.bias.requires_grad = False
+        self.filler_rep_net.weight.requires_grad = trainable
+        self.filler_rep_net.bias.requires_grad = trainable
         self.out_size = self.role_size * self.filler_size
         self.state_size = self.out_size
 
@@ -92,45 +103,31 @@ class TensorSequenceEncoder(Module):
         return tensor_product_rep
 
 class RNNSequenceEncoder(Module):
-    def __init__(self, in_size=128, state_size=1024, out_size=None, **kwargs):
+    def __init__(self, in_size=128, state_size=1024, out_size=None, orthonormalize=False, bias_out=True, **kwargs):
         super(RNNSequenceEncoder, self).__init__()
         self.in_size = in_size
         self.state_size = state_size
         
         if out_size is not None:
             self.out_size = out_size
+        else:
+            self.out_size = state_size
 
         self.in_layer = Linear(in_size, state_size)
         self.rec_layer = Linear(state_size, state_size)
-        self.out_layer = Linear(state_size, state_size)
+        # self.out_layer = Linear(state_size, self.out_size)
+        self.out_layer = Linear(state_size, self.out_size, bias=bias_out)
         self.activation = ReLU()
 
         self.device = device
         self.to(self.device)
 
 
-    def get_underlying_rep(self, x):
-        x = x.to(self.device)
-        T = x.shape[1]
-        bs = x.shape[0]
-        internal_rep = tch.zeros(bs, T, self.state_size).to(self.device)
-
-        state = tch.zeros(bs, self.state_size).to(self.device)
-        for t in range(T):
-            ext = self.in_layer(x[:,t,:])
-            state = self.activation(self.rec_layer(state + ext))
-            # state = self.activation(self.rec_layer2(state))
-
-        for t in range(T):
-            internal_rep[:, t, :] = state
-
-        return out
-
     def forward(self, x):
         x = x.to(self.device)
         T = x.shape[1]
         bs = x.shape[0]
-        out = tch.zeros(bs, T, self.state_size).to(self.device)
+        out = tch.zeros(bs, T, self.out_size).to(self.device)
 
         state = tch.zeros(bs, self.state_size).to(self.device)
         for t in range(T):
@@ -143,6 +140,35 @@ class RNNSequenceEncoder(Module):
             out[:, t, :] = plop
 
         return out
+
+    def get_intermediate_states(self, x):
+        x = x.to(self.device)
+        T = x.shape[1]
+        bs = x.shape[0]
+        states = tch.zeros(bs, T, self.state_size).to(self.device)
+        out = tch.zeros(bs, T, self.out_size).to(self.device)
+
+        state = tch.zeros(bs, self.state_size).to(self.device)
+        for t in range(T):
+            ext = self.in_layer(x[:,t,:])
+            state = self.activation(self.rec_layer(state + ext))
+            out[:, t, :] = self.out_layer(state)
+            states[:, t, :] = state
+
+        return states, out
+
+    def do_one_step(self, state, x=None):
+        bs = state.shape[0]
+
+        if x is None:
+            x = tch.zeros(bs, self.in_size)
+        x = x.to(self.device)
+       
+        ext = self.in_layer(x)
+        # print(self.in_layer, state.shape, x.shape, ext.shape)
+        state = self.activation(self.rec_layer(state + ext))
+        
+        return state, self.out_layer(state)
 
 
 class TensorProductDecompositionNetwork(Module):

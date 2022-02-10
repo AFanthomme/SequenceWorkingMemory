@@ -23,21 +23,109 @@ folder = 'out/with_RNN_encoder/'
 
 if __name__ == '__main__':
     # n_epochs = 10000
-    n_epochs = 20000
-    bs = 2048
+    n_epochs = 30000
+    bs = 256
     # n_dots = 16
     # T = 3
 
-    n_dots = 6
-    T = 8
+    # n_dots = 6
+    # T = 8
 
+    # observation_size = 128
+    # decoder_state_size = 64
+    # # sequence_encoding_size = 50
+    # # sequence_encoding_size = 45
+    # # sequence_encoding_size = 32
+    # sequence_encoding_size = 25
+
+    # n_dots = 12
+    # T = 8
+    # observation_size = 128
+    # decoder_state_size = 64
+    # # sequence_encoding_size = 25
+    # # sequence_encoding_size = 50
+    # sequence_encoding_size = 100
+
+
+    # lr = 1e-3
+    # n_dots = 2
+    # T = 10
+    # observation_size = 128
+    # decoder_state_size = 64
+    # # sequence_encoding_size = 32
+    # # sequence_encoding_size = 50
+    # # sequence_encoding_size = 16
+    # sequence_encoding_size = 25
+
+
+    # T = 10
+    # n_dots = 4
+    # observation_size = 128
+    # decoder_state_size = 64
+    # # sequence_encoding_size = 32
+    # # sequence_encoding_size = 25
+    # # sequence_encoding_size = 16
+    # sequence_encoding_size = 64
+
+    # lr = 3e-3
+    # T = 10
+    # n_dots = 6
+    # observation_size = 128
+    # decoder_state_size = 64
+    # # sequence_encoding_size = 64
+    # # sequence_encoding_size = 32
+    # # sequence_encoding_size = 50
+    # # sequence_encoding_size = 25
+    # sequence_encoding_size = 16
+
+    # lr = 1e-3
+    # T = 10
+    # n_dots = 8
+    # observation_size = 128
+    # decoder_state_size = 64
+    # # sequence_encoding_size = 32
+    # # sequence_encoding_size = 64
+    # # sequence_encoding_size = 19
+    # sequence_encoding_size = 21
+    # # sequence_encoding_size = 128
+    # # sequence_encoding_size = 50
+    # # sequence_encoding_size = 16
+
+
+
+    # lr = 1e-3
+    # T = 5
+    # n_dots = 4
+    # observation_size = 128
+    # decoder_state_size = 64
+
+    # # sequence_encoding_size = 16
+    # # sequence_encoding_size = 11
+    # # sequence_encoding_size = 9
+    # sequence_encoding_size = 8
+    # # sequence_encoding_size = 6
+    # # sequence_encoding_size = 4
+
+    lr = 1e-3
+    T = 5
+    # n_dots = 4
+    n_dots = 6
     observation_size = 128
-    sequence_encoding_size = 64
     decoder_state_size = 64
+
+    # sequence_encoding_size = 16
+    sequence_encoding_size = 11
+    # sequence_encoding_size = 10
+    # sequence_encoding_size = 8
+    # sequence_encoding_size = 9
+    # sequence_encoding_size = 6
+    # sequence_encoding_size = 7
+    # sequence_encoding_size = 5
+    # sequence_encoding_size = 4
 
     best_error = 2**20
 
-    folder += 'n_dots_{}_T_{}_enc_size_{}/'.format(n_dots, T, decoder_state_size)
+    folder += 'n_dots_{}_T_{}_enc_size_{}/'.format(n_dots, T, sequence_encoding_size)
     os.makedirs(folder, exist_ok=True)
 
 
@@ -45,7 +133,7 @@ if __name__ == '__main__':
     sequence_encoder = RNNSequenceEncoder(in_size=observation_size, state_size=sequence_encoding_size, out_size=sequence_encoding_size)
     net = Decoder(in_size=sequence_encoding_size, state_size=decoder_state_size)
 
-    opt = Adam(list(sequence_encoder.parameters())+list(net.parameters()), lr=3e-4)
+    opt = Adam(list(sequence_encoder.parameters())+list(net.parameters()), lr=lr)
     loss_fn = MSELoss()
 
     losses = np.zeros(n_epochs)
@@ -57,8 +145,6 @@ if __name__ == '__main__':
         X, y, indices = env.get_sequences(bs=bs, T=T) 
 
         sequence_encodings = sequence_encoder(X)
-        # print(sequence_encodings[0, :, 1])
-        # print(sequence_encodings[0, :, 0])
 
         opt.zero_grad()
         out = net(sequence_encodings)
@@ -67,16 +153,19 @@ if __name__ == '__main__':
         opt.step()
         losses[epoch] = loss.item()
 
-        if epoch % 100 == 0:
+        test_every=200
+        if epoch % test_every == 0:
             errors = []
             sequence_generator = env.generate_all_sequences(bs=bs)
             for observations, sequences in sequence_generator:
                 encodings = sequence_encoder(observations)
                 outputs = net(encodings)
+                # print(sequences.shape, env.dot_positions.shape)
                 positions = env.dot_positions[sequences]
+                # print(positions.shape)
                 errors.append(loss_fn(outputs, positions).item())
 
-            errors_fullset[epoch-100:epoch] = np.mean(errors)
+            errors_fullset[epoch-test_every:epoch] = np.mean(errors)
 
             if np.mean(errors) < best_error:
                 best_error = np.mean(errors)
@@ -87,14 +176,20 @@ if __name__ == '__main__':
 
 
 
-    plt.figure()
-    plt.semilogy(losses)
-    plt.semilogy(errors_fullset, c='k')
-    plt.savefig(folder+'losses.pdf')
-    plt.close()
+            plt.figure()
+            plt.semilogy(losses)
+            plt.semilogy(errors_fullset[:epoch], c='k')
+            plt.savefig(folder+'losses.pdf')
+            plt.close()
 
     out = out.detach().cpu().numpy()
     os.makedirs(folder+'trajs/', exist_ok=True)
+    enc = best_enc
+    dec = best_dec
+
+    X, y, indices = env.get_sequences(bs=bs, T=T)
+    sequence_encodings = sequence_encoder(X)
+    out = net(sequence_encodings).detach().cpu().numpy()
 
     for traj in range(10):
         fig, ax = plt.subplots(figsize=(5,5))
