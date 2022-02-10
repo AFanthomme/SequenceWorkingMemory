@@ -5,7 +5,10 @@ from torch.nn import Module, Linear, ReLU, Identity, Parameter
 # if tch.cuda.is_available():
 # device = tch.device('cuda:0')
 # else:
-device = tch.device('cpu')
+# device = tch.device('cpu')
+
+# device = tch.device('cuda:0')
+# device = tch.device('cpu')
 
 letter_to_int = {'A': 10, 'B': 11, 'C': 12, 'D': 13, 'E':14, 'F':15, 'G':16, 'H': 17, 'I': 18, 'J':19, 'K':20, 'L': 21, 'M':22,
 					'N': 23, 'O': 24}
@@ -13,7 +16,7 @@ letter_to_int = {'A': 10, 'B': 11, 'C': 12, 'D': 13, 'E':14, 'F':15, 'G':16, 'H'
 
 class ObservationNet(tch.nn.Module):
 	"""docstring for StaticEncoder"""
-	def __init__(self, in_size=2, observation_size=128, device=device):
+	def __init__(self, in_size=2, observation_size=128, device=tch.device('cuda:0')):
 		super(ObservationNet, self).__init__()
 		self.device = device
 		self.observation_size = observation_size
@@ -40,7 +43,7 @@ class CircularDots(object):
 		* T : length of sequences (can be overridden)
 
 	"""
-	def __init__(self, n_dots=6, T=3, device=device, use_obs_net=True, observation_size=128, load_from=None):
+	def __init__(self, n_dots=6, T=3, device=tch.device('cuda:0'), use_obs_net=True, observation_size=128, load_from=None):
 		super(CircularDots, self).__init__()
 		self.n_dots = n_dots
 		self.dot_angles = np.zeros((n_dots))
@@ -143,7 +146,7 @@ class CircularDots(object):
 
 # For experiments in the continuous 1D and 2D case
 class ContinuousCircularDots(object):
-	def __init__(self, T=3, device=device, use_obs_net=True, observation_size=128, load_from=None, **kwargs):
+	def __init__(self, T=3, device=tch.device('cuda:0'), use_obs_net=True, observation_size=128, load_from=None, **kwargs):
 		super(ContinuousCircularDots, self).__init__()
 		self.T = T
 		self.device = device

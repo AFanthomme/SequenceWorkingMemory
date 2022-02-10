@@ -18,16 +18,15 @@ import os
 from tqdm import tqdm
 from copy import deepcopy
 
-from torch.multiprocessing import Pool
-from sklearn.decomposition import PCA
+from torch.multiprocessing import Pool, Process, set_start_method
 from sklearn.linear_model import LinearRegression
 from scipy.spatial.distance import pdist
+from sklearn.decomposition import PCA
 
 PASTEL_GREEN = "#8fbf8f"
 PASTEL_RED = "#ff8080"
 PASTEL_BLUE = "#8080ff"
 PASTEL_MAGENTA = "#ff80ff"
-
 
 def plot_mean_std(ax, data, axis=0, c_line='g', c_fill=PASTEL_GREEN, x=None, label=None, log_yscale=False):
     if not log_yscale:
@@ -51,10 +50,10 @@ def plot_mean_std(ax, data, axis=0, c_line='g', c_fill=PASTEL_GREEN, x=None, lab
 
 
 BASE_FOLDER = '/home/atf6569/my_scratch/SequenceWorkingMemory/continuous_capacity_study/'
-TEMPLATE = 'T_{}_memsize_{}/seed_{}/'
 
 
-def plot_capacity():
+
+def plot_capacity(TEMPLATE = 'T_{}_memsize_{}/seed_{}/'):
     n_seeds = 8
     observation_size = 64
     state_size=64
@@ -103,11 +102,11 @@ def plot_capacity():
                 print('t', t,'memsize', memsize)
                 folder = BASE_FOLDER + TEMPLATE.format(t, memsize, seed)
 
-                env = ContinuousCircularDots(T=t, observation_size=observation_size)
+                env = ContinuousCircularDots(T=t, observation_size=observation_size, device=device)
                 env.load(folder+'environment.pt', map_location=env.device)
-                sequence_encoder = RNNSequenceEncoder(in_size=observation_size, state_size=state_size, out_size=memsize)
+                sequence_encoder = RNNSequenceEncoder(in_size=observation_size, state_size=state_size, out_size=memsize, device=device)
 
-                dec = Decoder(in_size=memsize, state_size=state_size)
+                dec = Decoder(in_size=memsize, state_size=state_size, device=device)
 
                 dec.load_state_dict(tch.load(folder+'decoder.pt', map_location=dec.device))
                 sequence_encoder.load_state_dict(tch.load(folder+'encoder.pt', map_location=dec.device))
@@ -132,7 +131,7 @@ def plot_capacity():
     fig.savefig(BASE_FOLDER + 'figure_summary.pdf')
     plt.close('all')
 
-def study_representation(T=5, memsize=24, bs=512):
+def study_representation(T=5, memsize=24, bs=512, TEMPLATE='T_{}_memsize_{}/seed_{}/', bias_out=True):
     n_seeds = 3
     observation_size = 64
     state_size = 64
@@ -144,10 +143,10 @@ def study_representation(T=5, memsize=24, bs=512):
 
         os.makedirs(folder+'tuning_curves', exist_ok=True)
 
-        env = ContinuousCircularDots(T=T, observation_size=observation_size)
-        sequence_encoder = RNNSequenceEncoder(in_size=observation_size, state_size=state_size, out_size=memsize)
+        env = ContinuousCircularDots(T=T, observation_size=observation_size, device=device)
+        sequence_encoder = RNNSequenceEncoder(in_size=observation_size, state_size=state_size, out_size=memsize, device=device, bias_out=bias_out)
         print(state_size, sequence_encoder.in_layer, sequence_encoder.state_size)
-        dec = Decoder(in_size=memsize, state_size=state_size)
+        dec = Decoder(in_size=memsize, state_size=state_size, device=device)
 
         env.load(folder+'environment.pt')
         dec.load_state_dict(tch.load(folder+'decoder.pt', map_location=dec.device))
@@ -205,6 +204,34 @@ def study_representation(T=5, memsize=24, bs=512):
             fig.savefig(folder+'tuning_curves/neuron_{}.pdf'.format(neuron_idx))
             plt.close('all')
 
+
+        pca = PCA()
+        loadings = pca.fit_transform(all_encs)
+
+        relevant_loadings = loadings[:, :2*T].flatten()
+        irrelevant_loadings = loadings[:, 2*T:].flatten()
+        fig, axes = plt.subplots(1, 2, figsize=(10,5))
+        axes[0].hist(relevant_loadings, 20, alpha=0.5, color='g', label='First 2T loadings')#, density=True)
+        axes[1].hist(irrelevant_loadings, 20, alpha=0.5, color='r', label='M-2T other loadings')#, density=True)
+        axes[0].set_xlabel('Loading value')
+        axes[0].set_ylabel('Bin count')
+        axes[0].set_title('Encoding step {}'.format(t))
+        axes[1].set_xlabel('Loading value')
+        axes[1].set_ylabel('Bin count')
+        fig.savefig(folder+'loadings_histogram.pdf')
+
+        val_loadings = pca.transform(val_all_encs)
+        val_relevant_loadings = val_loadings[:, :2*T].flatten()
+        val_irrelevant_loadings = val_loadings[:, 2*T:].flatten()
+        fig, axes = plt.subplots(1, 2, figsize=(10,5))
+        axes[0].hist(val_relevant_loadings, 20, alpha=0.5, color='g', label='First 2T loadings')#, density=True)
+        axes[1].hist(val_irrelevant_loadings, 20, alpha=0.5, color='r', label='M-2T other loadings')#, density=True)
+        axes[0].set_xlabel('Loading value')
+        axes[0].set_ylabel('Bin count')
+        axes[0].set_title('Encoding step {}'.format(t))
+        axes[1].set_xlabel('Loading value')
+        axes[1].set_ylabel('Bin count')
+        fig.savefig(folder+'val_loadings_histogram.pdf')
         
         os.makedirs(folder+'intermediate_svd', exist_ok=True)
         os.makedirs(folder+'intermediate_decodings', exist_ok=True)
@@ -224,168 +251,128 @@ def study_representation(T=5, memsize=24, bs=512):
             axes[1].axvline(x=2*(t+1), ls='--')
             plt.savefig(folder+'intermediate_svd/t_{}.pdf'.format(t+1))
 
-            if t == 0:
-                fig, ax = plt.subplots(1, 1, figsize=(5, 5))
-                thetas = np.arctan2(all_pos[:, 0, 0], all_pos[:, 0, 1])
-                # print(thetas)
-                norm = matplotlib.colors.Normalize(vmin=-np.pi, vmax=np.pi)
-                ax.scatter(loadings[:, 0], loadings[:, 1], c=seismic(norm(thetas)), rasterized=True)
-                divider = make_axes_locatable(ax)
-                ax_cb = divider.new_horizontal(size="5%", pad=0.05)
-                cb1 = matplotlib.colorbar.ColorbarBase(ax_cb, cmap=seismic, norm=norm, orientation='vertical')
-                fig.add_axes(ax_cb)
-                ax.set_xlabel('Loading on first axis')
-                ax.set_ylabel('Loading on second axis')
-                ax.set_title('Loadings as functions of first step dot position')
-                plt.savefig(folder+'first_step_loadings.pdf')
-            else:
-                model = PCA()
-                prev_state = tch.from_numpy(all_intermediate_states[:, t-1]).float()
-                _, new_enc = sequence_encoder.do_one_step(prev_state) # Do one step without any input
-                X = all_intermediate_encs[:, t] - new_enc.detach().cpu().numpy() # Hopefully, this should depend only on last input -> dim 2
-                loadings = model.fit_transform(X)
-                fig, axes = plt.subplots(1, 3, figsize=(15, 5))
-                thetas = np.arctan2(all_pos[:, t, 0], all_pos[:, t, 1])
-                variance_ratios = pca_model.explained_variance_ratio_ 
-                axes[0].hist(variance_ratios, bins=100)
-                tmp = [0.] + [c for c in np.cumsum(variance_ratios)]
-                axes[1].plot(range(len(tmp)), tmp)
-                axes[1].axvline(x=2, ls='--')
+            # if t == 0:
+            #     fig, ax = plt.subplots(1, 1, figsize=(5, 5))
+            #     thetas = np.arctan2(all_pos[:, 0, 0], all_pos[:, 0, 1])
+            #     # print(thetas)
+            #     norm = matplotlib.colors.Normalize(vmin=-np.pi, vmax=np.pi)
+            #     ax.scatter(loadings[:, 0], loadings[:, 1], c=seismic(norm(thetas)), rasterized=True)
+            #     divider = make_axes_locatable(ax)
+            #     ax_cb = divider.new_horizontal(size="5%", pad=0.05)
+            #     cb1 = matplotlib.colorbar.ColorbarBase(ax_cb, cmap=seismic, norm=norm, orientation='vertical')
+            #     fig.add_axes(ax_cb)
+            #     ax.set_xlabel('Loading on first axis')
+            #     ax.set_ylabel('Loading on second axis')
+            #     ax.set_title('Loadings as functions of first step dot position')
+            #     plt.savefig(folder+'first_step_loadings.pdf')
+            # else:
+            #     model = PCA()
+            #     prev_state = tch.from_numpy(all_intermediate_states[:, t-1]).float()
+            #     _, new_enc = sequence_encoder.do_one_step(prev_state) # Do one step without any input
+            #     X = all_intermediate_encs[:, t] - new_enc.detach().cpu().numpy() # Hopefully, this should depend only on last input -> dim 2
+            #     loadings = model.fit_transform(X)
+            #     fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+            #     thetas = np.arctan2(all_pos[:, t, 0], all_pos[:, t, 1])
+            #     variance_ratios = pca_model.explained_variance_ratio_ 
+            #     axes[0].hist(variance_ratios, bins=100)
+            #     tmp = [0.] + [c for c in np.cumsum(variance_ratios)]
+            #     axes[1].plot(range(len(tmp)), tmp)
+            #     axes[1].axvline(x=2, ls='--')
                 
-                norm = matplotlib.colors.Normalize(vmin=-np.pi, vmax=np.pi)
-                axes[2].scatter(loadings[:, 0], loadings[:, 1], c=seismic(norm(thetas)), rasterized=True)
-                divider = make_axes_locatable(axes[1])
-                ax_cb = divider.new_horizontal(size="5%", pad=0.05)
-                cb1 = matplotlib.colorbar.ColorbarBase(ax_cb, cmap=seismic, norm=norm, orientation='vertical')
-                fig.add_axes(ax_cb)
-                axes[2].set_xlabel('Loading on first axis')
-                axes[2].set_ylabel('Loading on second axis')
-                axes[2].set_title('Loadings as functions of dot position')
-                plt.savefig(folder+'step_{}_loadings.pdf'.format(t))
+            #     norm = matplotlib.colors.Normalize(vmin=-np.pi, vmax=np.pi)
+            #     axes[2].scatter(loadings[:, 0], loadings[:, 1], c=seismic(norm(thetas)), rasterized=True)
+            #     divider = make_axes_locatable(axes[1])
+            #     ax_cb = divider.new_horizontal(size="5%", pad=0.05)
+            #     cb1 = matplotlib.colorbar.ColorbarBase(ax_cb, cmap=seismic, norm=norm, orientation='vertical')
+            #     fig.add_axes(ax_cb)
+            #     axes[2].set_xlabel('Loading on first axis')
+            #     axes[2].set_ylabel('Loading on second axis')
+            #     axes[2].set_title('Loadings as functions of dot position')
+            #     plt.savefig(folder+'step_{}_loadings.pdf'.format(t))
             
         # print(means)
-        for mean_exchange, remove_mean in zip([True, False, False], [False, False, True,]):
-            for t in range(T):
-                tmp_bs = 3
-                y = all_pos[:tmp_bs]
+        # for mean_exchange, remove_mean in zip([True, False, False], [False, False, True,]):
+        #     for t in range(T):
+        #         tmp_bs = 3
+        #         y = all_pos[:tmp_bs]
 
-                X = all_intermediate_encs[:, t]
-
-
-                if mean_exchange:
-                    X -= means[t]
-                    X += means[-1]
-                elif remove_mean:
-                    X -= means[t]
-
-                X = tch.from_numpy(X[:tmp_bs]).float()
-                X = X.unsqueeze(1)
-                X = X.repeat(1, T, 1)
-                outputs = dec(X).detach().cpu().numpy()
-
-                for traj in range(tmp_bs):
-                    fig, ax = plt.subplots()
-                    norm = matplotlib.colors.Normalize(vmin=0, vmax=T)
-                    ax.scatter(y[traj, :, 0], y[traj, :, 1], c=jet(norm(range(T))), marker='+')
-                    ax.scatter(outputs[traj, :, 0], outputs[traj, :, 1], c=jet(norm((range(T)))), marker='x')
-                    divider = make_axes_locatable(ax)
-                    ax_cb = divider.new_horizontal(size="5%", pad=0.05)
-                    cb1 = matplotlib.colorbar.ColorbarBase(ax_cb, cmap=jet, norm=norm, orientation='vertical')
-                    fig.add_axes(ax_cb)
-                    unit_circle = plt.Circle((0, 0), 1., edgecolor='k', fc=None, ls='--', fill=False)
-                    ax.add_patch(unit_circle)
-
-                    plt.tight_layout()
-                    if remove_mean:
-                        fig.savefig(folder+'intermediate_decodings/traj_{}_t_{}_removed_mean.pdf'.format(traj, t))
-                    else:
-                        fig.savefig(folder+'intermediate_decodings/traj_{}_t_{}_mean_exchange_{}.pdf'.format(traj, t, mean_exchange))
-                    plt.close('all')
-
-        os.makedirs(folder+'shifted_decodings', exist_ok=True)
-
-        for t_shift in [1, 2, 3]:
-            for t in range(T):
-                tmp_bs = 3
-                y = all_pos[:tmp_bs]
-
-                if t_shift == 0:
-                    X = all_intermediate_encs[:, t]
-                else:
-                    states = tch.from_numpy(all_intermediate_states[:, t]).float()
-                    for _ in range(t_shift):
-                        states, outs = sequence_encoder.do_one_step(states, x=None)
-                    X = outs.detach().cpu().numpy()
-
-                X = tch.from_numpy(X[:tmp_bs]).float()
-                X = X.unsqueeze(1)
-                X = X.repeat(1, T, 1)
-                outputs = dec(X).detach().cpu().numpy()
-
-                for traj in range(tmp_bs):
-                    fig, ax = plt.subplots()
-                    norm = matplotlib.colors.Normalize(vmin=0, vmax=T)
-                    ax.scatter(y[traj, :, 0], y[traj, :, 1], c=jet(norm(range(T))), marker='+')
-                    ax.scatter(outputs[traj, :, 0], outputs[traj, :, 1], c=jet(norm((range(T)))), marker='x')
-                    divider = make_axes_locatable(ax)
-                    ax_cb = divider.new_horizontal(size="5%", pad=0.05)
-                    cb1 = matplotlib.colorbar.ColorbarBase(ax_cb, cmap=jet, norm=norm, orientation='vertical')
-                    fig.add_axes(ax_cb)
-                    unit_circle = plt.Circle((0, 0), 1., edgecolor='k', fc=None, ls='--', fill=False)
-                    ax.add_patch(unit_circle)
-
-                    plt.tight_layout()
-                    fig.savefig(folder+'shifted_decodings/traj_{}_t_{}_shifted_{}.pdf'.format(traj, t, t_shift))
-                    plt.close('all')
-
-        print([(x**2).sum() for x in means])
-        angles = pdist(means, metric='cosine')
-        print(angles)
-
-        # # Trying a frankenstein trajectory (WIP)
-        # os.makedirs(folder+'frankenstein_trajs', exist_ok=True)
-        # tmp_bs = 3
-        # for traj in range(tmp_bs):
-        #     y_fp = all_pos[:tmp_bs]
-        #     y_sp = all_pos[tmp_bs:2*tmp_bs]
-        #     y = np.zeros_like(y_fp)
-        #     y[:T//2] = y_fp[:T//2]
-        #     y[T//2:] = y_sp[T//2:]
-
-        #     X_sp = all_intermediate_encs[tmp_bs:2*tmp_bs, -1]
-        #     X_intermediate = all_intermediate_encs[tmp_bs:2*tmp_bs, T//2]
-        #     X_fp = all_intermediate_encs[:tmp_bs, T//2]
-
-        #     X = X_sp - X_intermediate + X_fp
-        #     X = tch.from_numpy(X).float()
-        #     X = X.unsqueeze(1)
-        #     X = X.repeat(1, T, 1)
-        #     outputs = dec(X).detach().cpu().numpy()
-
-        #     fig, ax = plt.subplots()
-        #     norm = matplotlib.colors.Normalize(vmin=0, vmax=T)
-        #     ax.scatter(y[traj, :, 0], y[traj, :, 1], c=jet(norm(range(T))), marker='+')
-        #     ax.scatter(outputs[traj, :, 0], outputs[traj, :, 1], c=jet(norm((range(T)))), marker='x')
-        #     divider = make_axes_locatable(ax)
-        #     ax_cb = divider.new_horizontal(size="5%", pad=0.05)
-        #     cb1 = matplotlib.colorbar.ColorbarBase(ax_cb, cmap=jet, norm=norm, orientation='vertical')
-        #     fig.add_axes(ax_cb)
-        #     unit_circle = plt.Circle((0, 0), 1., edgecolor='k', fc=None, ls='--', fill=False)
-        #     ax.add_patch(unit_circle)
-
-        #     plt.tight_layout()
-        #     fig.savefig(folder+'frankenstein_trajs/traj_{}.pdf'.format(traj))
-        #     plt.close('all')
+        #         X = all_intermediate_encs[:, t]
 
 
+        #         if mean_exchange:
+        #             X -= means[t]
+        #             X += means[-1]
+        #         elif remove_mean:
+        #             X -= means[t]
+
+        #         X = tch.from_numpy(X[:tmp_bs]).float()
+        #         X = X.unsqueeze(1)
+        #         X = X.repeat(1, T, 1)
+        #         outputs = dec(X).detach().cpu().numpy()
+
+        #         for traj in range(tmp_bs):
+        #             fig, ax = plt.subplots()
+        #             norm = matplotlib.colors.Normalize(vmin=0, vmax=T)
+        #             ax.scatter(y[traj, :, 0], y[traj, :, 1], c=jet(norm(range(T))), marker='+')
+        #             ax.scatter(outputs[traj, :, 0], outputs[traj, :, 1], c=jet(norm((range(T)))), marker='x')
+        #             divider = make_axes_locatable(ax)
+        #             ax_cb = divider.new_horizontal(size="5%", pad=0.05)
+        #             cb1 = matplotlib.colorbar.ColorbarBase(ax_cb, cmap=jet, norm=norm, orientation='vertical')
+        #             fig.add_axes(ax_cb)
+        #             unit_circle = plt.Circle((0, 0), 1., edgecolor='k', fc=None, ls='--', fill=False)
+        #             ax.add_patch(unit_circle)
+
+        #             plt.tight_layout()
+        #             if remove_mean:
+        #                 fig.savefig(folder+'intermediate_decodings/traj_{}_t_{}_removed_mean.pdf'.format(traj, t))
+        #             else:
+        #                 fig.savefig(folder+'intermediate_decodings/traj_{}_t_{}_mean_exchange_{}.pdf'.format(traj, t, mean_exchange))
+        #             plt.close('all')
+
+        # os.makedirs(folder+'shifted_decodings', exist_ok=True)
+
+        # for t_shift in [1, 2, 3]:
+        #     for t in range(T):
+        #         tmp_bs = 3
+        #         y = all_pos[:tmp_bs]
+
+        #         if t_shift == 0:
+        #             X = all_intermediate_encs[:, t]
+        #         else:
+        #             states = tch.from_numpy(all_intermediate_states[:, t]).float()
+        #             for _ in range(t_shift):
+        #                 states, outs = sequence_encoder.do_one_step(states, x=None)
+        #             X = outs.detach().cpu().numpy()
+
+        #         X = tch.from_numpy(X[:tmp_bs]).float()
+        #         X = X.unsqueeze(1)
+        #         X = X.repeat(1, T, 1)
+        #         outputs = dec(X).detach().cpu().numpy()
+
+        #         for traj in range(tmp_bs):
+        #             fig, ax = plt.subplots()
+        #             norm = matplotlib.colors.Normalize(vmin=0, vmax=T)
+        #             ax.scatter(y[traj, :, 0], y[traj, :, 1], c=jet(norm(range(T))), marker='+')
+        #             ax.scatter(outputs[traj, :, 0], outputs[traj, :, 1], c=jet(norm((range(T)))), marker='x')
+        #             divider = make_axes_locatable(ax)
+        #             ax_cb = divider.new_horizontal(size="5%", pad=0.05)
+        #             cb1 = matplotlib.colorbar.ColorbarBase(ax_cb, cmap=jet, norm=norm, orientation='vertical')
+        #             fig.add_axes(ax_cb)
+        #             unit_circle = plt.Circle((0, 0), 1., edgecolor='k', fc=None, ls='--', fill=False)
+        #             ax.add_patch(unit_circle)
+
+        #             plt.tight_layout()
+        #             fig.savefig(folder+'shifted_decodings/traj_{}_t_{}_shifted_{}.pdf'.format(traj, t, t_shift))
+        #             plt.close('all')
+
+        # print([(x**2).sum() for x in means])
+        # angles = pdist(means, metric='cosine')
+        # print(angles)
 
         mean_activity = all_encs.mean(axis=0)
         delta_act = all_encs - np.reshape(mean_activity, (1, -1))
         norm_of_mean = np.sqrt(np.sum(mean_activity**2))
-        norm_of_delta = np.mean(np.sqrt(np.sum(delta_act**2, axis=-1)))
-        # cov = delta_act.T.dot(delta_act) / (all_encs.shape[0]-1)
-        # cov = cov / np.sum(np.diag(cov))    
-        # U, s, Vh = np.linalg.svd(cov, hermitian=True)         
+        norm_of_delta = np.mean(np.sqrt(np.sum(delta_act**2, axis=-1)))   
 
 
         pca_2T = PCA(n_components = 2*T)
@@ -503,8 +490,12 @@ def study_representation(T=5, memsize=24, bs=512):
         for t in range(T):
             enc_t = all_intermediate_encs[:, t]
             intermediate_loadings[:, t] = pca_on_encoding.transform(enc_t)
-            # restricted_enc = all_encs 
+            plop = deepcopy(intermediate_loadings[:, t])
+            plop[:, 2*T:] = 0
+            rec = pca_on_encoding.inverse_transform(plop)
+            intermediate_scores[:, t] = np.sqrt(np.sum((rec-enc_t)**2, axis=-1) / np.sum(enc_t**2, axis=-1))
 
+        print('Reconstruction_scores : ', np.mean(intermediate_scores, axis=0))
 
         fig, axes = plt.subplots(1, T, figsize=(5*T, 5))
         for t in range(T):
@@ -517,14 +508,39 @@ def study_representation(T=5, memsize=24, bs=512):
             ax.set_ylabel('Value of the loading')
             ax.set_title('Encoding step {}'.format(t))
             ax.axvline(x=2*T-1, c='k') # Expect only those to contribute
-        fig.savefig(folder+'intermediate_loadings.pdf'.format(traj, t))
+        fig.savefig(folder+'intermediate_loadings.pdf')
             
-        
+        fig, axes = plt.subplots(2, T, figsize=(5*T, 2*5))
+        for t in range(T):
+            relevant_loadings = intermediate_loadings[:, t, :2*T].flatten()
+            irrelevant_loadings = intermediate_loadings[:, t, 2*T:].flatten()
+
+            # print(np.min(irrelevant_loadings), np.max(irrelevant_loadings))
+            axes[0, t].hist(relevant_loadings, 20, alpha=0.5, color='g', label='First 2T loadings')#, density=True)
+            axes[1, t].hist(irrelevant_loadings, 20, alpha=0.5, color='r', label='M-2T other loadings')#, density=True)
+
+            axes[0, t].set_xlabel('Loading value')
+            axes[0, t].set_ylabel('Bin count')
+            axes[0, t].set_title('Encoding step {}'.format(t))
+
+            axes[1, t].set_xlabel('Loading value')
+            axes[1, t].set_ylabel('Bin count')
+
+        fig.tight_layout()
+        fig.savefig(folder+'intermediate_loadings_histogram.pdf')
 
 
 if __name__ == '__main__':
+    set_start_method('spawn')
+
+    if tch.cuda.is_available():
+        device = tch.device('cuda:0')
+    else:
+        device = tch.device('cpu')
+
     # plot_capacity()
     # study_representation(T=5, memsize=24)
     # study_representation(T=7, memsize=32)
-    study_representation(T=5, memsize=128)
+    # study_representation(T=5, memsize=128)
     # study_representation(T=3, memsize=24)
+    study_representation(T=5, memsize=24, TEMPLATE = 'T_{}_memsize_{}_bias_False/seed_{}/', bias_out=False)

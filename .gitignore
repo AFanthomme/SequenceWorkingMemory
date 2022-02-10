@@ -1,5 +1,6 @@
 out
 bkp_out
+capacity_study
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

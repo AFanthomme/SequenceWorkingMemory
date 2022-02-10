@@ -1,14 +1,21 @@
 import torch as tch 
 from torch.nn import Module, Linear, ReLU, Identity, Parameter
 
-# if tch.cuda.is_available():
-# device = tch.device('cuda:0')
-# else:
-device = tch.device('cpu')
+# try:
+#     if tch.cuda.is_available():
+#         device = tch.device('cuda:0')
+#     else:
+#         device = tch.device('cpu')
+# except:
+#     pass
 
+# tch.cuda.is_available()
+
+# device = tch.device('cuda:0')
+# device = tch.device('cpu')
 
 class Decoder(Module):
-    def __init__(self, in_size=1024, state_size=64):
+    def __init__(self, in_size=1024, state_size=64, device=tch.device('cuda:0')):
         super(Decoder, self).__init__()
         self.in_size = in_size
         self.state_size = state_size
@@ -22,6 +29,7 @@ class Decoder(Module):
 
         self.device = device
         self.to(self.device)
+        print('Decoder launched on device :', self.device)
 
 
     def forward(self, x):
@@ -41,7 +49,7 @@ class Decoder(Module):
 
 class TensorSequenceEncoder(Module):
     "Map a sequence of encodings into a Tensor encoding of said sequence"
-    def __init__(self, in_size=64, role_size=32, filler_size=None, T=3, trainable=False, device=device): #, orthogonalize=True
+    def __init__(self, in_size=64, role_size=32, filler_size=None, T=3, trainable=False, device=tch.device('cuda:0')): #, orthogonalize=True
         super(TensorSequenceEncoder, self).__init__()
         self.in_size = in_size
         self.role_size = role_size
@@ -103,7 +111,7 @@ class TensorSequenceEncoder(Module):
         return tensor_product_rep
 
 class RNNSequenceEncoder(Module):
-    def __init__(self, in_size=128, state_size=1024, out_size=None, orthonormalize=False, bias_out=True, **kwargs):
+    def __init__(self, in_size=128, state_size=1024, out_size=None, orthonormalize=False, bias_out=True, device=tch.device('cuda:0'), **kwargs):
         super(RNNSequenceEncoder, self).__init__()
         self.in_size = in_size
         self.state_size = state_size
@@ -173,7 +181,7 @@ class RNNSequenceEncoder(Module):
 
 class TensorProductDecompositionNetwork(Module):
     "Map a sequence of encodings into a Tensor encoding of said sequence"
-    def __init__(self, in_size=64, role_size=64, filler_size=None, out_size=512, T=3, n_dots=16, device=device, force_identity_out=False):
+    def __init__(self, in_size=64, role_size=64, filler_size=None, out_size=512, T=3, n_dots=16, device=tch.device('cuda:0'), force_identity_out=False):
         super(TensorProductDecompositionNetwork, self).__init__()
         self.n_dots = n_dots
         self.in_size = in_size

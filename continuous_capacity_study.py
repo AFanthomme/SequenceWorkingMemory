@@ -1,20 +1,13 @@
+from torch.multiprocessing import Pool, Process, set_start_method
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt 
 
-# plt.rc('text', usetex=True)
 plt.switch_backend('Agg')
 plt.rc('font', family='serif')
 
 import torch as tch
-from torch.multiprocessing import Pool, Process, set_start_method
-# try:
-#      set_start_method('spawn')
-# except RuntimeError:
-#     pass
-
-# tch.multiprocessing.set_start_method('spawn')
 from torch.optim import Adam
 from torch.nn import MSELoss
 from mpl_toolkits.axes_grid1 import make_axes_locatable
@@ -27,7 +20,10 @@ from copy import deepcopy
 
 
 
-
+if tch.cuda.is_available():
+    device = tch.device('cuda:0')
+else:
+    device = tch.device('cpu')
 
 
 
@@ -74,9 +70,9 @@ def run_one_exp(folder, memsize=None, n_dots=None, T=None, n_epochs=50000, bias_
     lr = 1e-3
     bs = 256
 
-    env = ContinuousCircularDots(T=T, observation_size=observation_size)
-    sequence_encoder = RNNSequenceEncoder(in_size=observation_size, state_size=state_size, out_size=memsize, bias_out=bias_out)
-    net = Decoder(in_size=memsize, state_size=state_size)
+    env = ContinuousCircularDots(T=T, observation_size=observation_size, device=device)
+    sequence_encoder = RNNSequenceEncoder(in_size=observation_size, state_size=state_size, out_size=memsize, bias_out=bias_out, device=device)
+    net = Decoder(in_size=memsize, state_size=state_size, device=device)
 
     opt = Adam(list(sequence_encoder.parameters())+list(net.parameters()), lr=lr)
     loss_fn = MSELoss()
@@ -148,6 +144,8 @@ class ContinuousCapacityExplorer:
 
 
 if __name__ == '__main__':
+    set_start_method('spawn')
+
     for T, memsizes in zip(T_list, memsize_list):
         explorer = ContinuousCapacityExplorer(T, memsizes, bias_out=False)
         # explorer = ContinuousCapacityExplorer(T, memsizes, bias_out=True)
