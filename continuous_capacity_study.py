@@ -70,7 +70,7 @@ def run_one_exp(folder, memsize=None, n_dots=None, T=None, n_epochs=50000, bias_
     lr = 1e-3
     bs = 256
 
-    env = ContinuousCircularDots(T=T, observation_size=observation_size, device=device)
+    env = ContinuousDots(T=T, observation_size=observation_size, device=device)
     sequence_encoder = RNNSequenceEncoder(in_size=observation_size, state_size=state_size, out_size=memsize, bias_out=bias_out, device=device)
     net = Decoder(in_size=memsize, state_size=state_size, device=device)
 

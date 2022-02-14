@@ -251,6 +251,58 @@ class TensorProductDecompositionNetwork(Module):
 
         return self.out_layer(tensor_product_rep)
 
+
+class SimpleContinuousTPDN(Module):
+    def __init__(self, role_size=None, filler_size=None, out_size=512, T=3, device=tch.device('cuda:0'), bias_out=True):
+        super(SimpleContinuousTPDN, self).__init__()
+
+        if role_size is None:
+            self.role_size = 2*T
+        else:
+            self.role_size = role_size
+
+        if filler_size is None:
+            self.filler_size = 1
+        else:
+            self.filler_size = filler_size
+
+        self.T = T
+
+        self.device = device
+        self.role_representer = Linear(2*T, self.role_size, bias=False)
+        self.filler_representer = Linear(2*T, self.filler_size, bias=False)
+        self.out_size = out_size
+        self.state_size = self.filler_size * self.role_size
+ 
+        self.out_layer = Linear(self.state_size, self.out_size, bias=bias_out)
+
+        self.to(self.device)
+
+    def get_underlying_TP(self, x):
+        x = x.to(self.device) # (bs, T, 2)
+        T = x.shape[1]
+        bs = x.shape[0] 
+
+        R = self.role_representer.weight.T
+        F = self.filler_representer.weight.T
+        outer_products = tch.einsum('tr, tf->trf', R, F).view(2*T, -1)
+        # print('shape of R: ', R.shape) # should be (2T, role_size)
+        # print('shape of F: ', F.shape) # should be (2T, filler_size)
+        # print('shape of outer_products: ', outer_products.shape) # should be (2T, filler_size*role_size)
+        
+        x = x.view(bs, 2*T)
+        tpr = x.mm(outer_products) # sum over "roles" (t,d) of the corresponding TP times filler value
+
+        return tpr
+
+    def forward(self, x):
+        T = x.shape[1]
+        tpr = self.get_underlying_TP(x)
+        tpr = tpr.unsqueeze(1).repeat(1, T, 1)
+        return self.out_layer(tpr)
+
+
+
 if __name__ == '__main__':
     from environment import CircularDots
     env = CircularDots(n_dots=6, T=3)
