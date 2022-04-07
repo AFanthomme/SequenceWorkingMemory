@@ -1,20 +1,9 @@
 import torch as tch 
 from torch.nn import Module, Linear, ReLU, Identity, Parameter
-
-# try:
-#     if tch.cuda.is_available():
-#         device = tch.device('cuda:0')
-#     else:
-#         device = tch.device('cpu')
-# except:
-#     pass
-
-# tch.cuda.is_available()
-
-# device = tch.device('cuda:0')
-# device = tch.device('cpu')
+from copy import deepcopy
 
 class Decoder(Module):
+    '''A Vanilla-RNN based decoder for our sequence encodings '''
     def __init__(self, in_size=1024, state_size=64, device=tch.device('cuda:0')):
         super(Decoder, self).__init__()
         self.in_size = in_size
@@ -46,6 +35,150 @@ class Decoder(Module):
             out[:, t, :] = self.out_layer2(self.activation(self.out_layer(state)))
 
         return out
+
+    def get_internal_states(self, x):
+        x = x.to(self.device)
+        T = x.shape[1]
+        bs = x.shape[0]
+        out = tch.zeros(bs, T, 2).to(self.device)
+        states = tch.zeros(bs, T, self.state_size).to(self.device)
+        currents = tch.zeros(bs, T, self.state_size).to(self.device)
+
+        state = tch.zeros(bs, self.state_size).to(self.device)
+        for t in range(T):
+            ext = self.in_layer(x[:,t,:])
+            current = self.rec_layer(state + ext)
+            state = self.activation(self.rec_layer(state + ext))
+            # state = self.activation(self.rec_layer(state + ext))
+            out[:, t, :] = self.out_layer2(self.activation(self.out_layer(state)))
+            states[:, t, :] = state
+            currents[:, t, :] = current
+        return states, currents, out
+
+class SingleLayerDecoder(Module):
+    '''A linear RNN decoder for our sequence encodings '''
+    def __init__(self, in_size=1024, state_size=64, nonlinearity=None, device=tch.device('cuda:0')):
+        super(SingleLayerDecoder, self).__init__()
+        self.in_size = in_size
+        self.state_size = state_size
+
+        self.in_layer = Linear(in_size, state_size, bias=False)
+        self.rec_layer = Linear(state_size, state_size, bias=False)
+        self.out_layer = Linear(state_size, 2, bias=False)
+
+        self.nonlinearity = nonlinearity
+
+        if self.nonlinearity is None:
+            self.activation = Identity()
+        elif self.nonlinearity == 'ReLU':
+            self.activation = ReLU()
+
+        self.device = device
+        self.to(self.device)
+        print('Linear Decoder launched on device :', self.device)
+
+
+    def forward(self, x):
+        x = x.to(self.device)
+        T = x.shape[1]
+        bs = x.shape[0]
+        out = tch.zeros(bs, T, 2).to(self.device)
+
+        state = tch.zeros(bs, self.state_size).to(self.device)
+        for t in range(T):
+            ext = self.in_layer(x[:,t,:])
+            state = self.activation(self.rec_layer(state + ext))
+            out[:, t, :] = self.out_layer(state)
+
+        return out
+
+    def get_internal_states(self, x):
+        x = x.to(self.device)
+        T = x.shape[1]
+        bs = x.shape[0]
+        out = tch.zeros(bs, T, 2).to(self.device)
+        states = tch.zeros(bs, T, self.state_size).to(self.device)
+        currents = tch.zeros(bs, T, self.state_size).to(self.device)
+
+        state = tch.zeros(bs, self.state_size).to(self.device)
+        for t in range(T):
+            ext = self.in_layer(x[:,t,:])
+            current = self.rec_layer(state + ext)
+            state = self.activation(current)
+            out[:, t, :] = self.out_layer(state)
+            states[:, t, :] = state
+            currents[:, t, :] = current
+        return states, currents, out
+
+class LinearEncoder(Module):
+    def __init__(self, T=3, out_size=1024, orthonormalize=False, bias=False, device=tch.device('cuda:0'), **kwargs):
+        super(LinearEncoder, self).__init__()
+        print('In linearEncoder, out_size=', out_size)
+        self.out_size = out_size
+        self.representation = Linear(2*T, out_size, bias=bias)
+        self.device = device
+        self.T=T
+        self.to(self.device)
+
+    def forward(self, x):
+        # expect x: (bs, T, 2)
+        x = x.to(self.device)
+        x = x.view(x.shape[0], -1)
+        out = self.representation(x)
+        return out.unsqueeze(1).repeat(1, self.T, 1)
+
+class SingleLayerEncoder(Module):
+    def __init__(self, T=3, in_size=1024, out_size=1024, orthonormalize=False, bias=False, device=tch.device('cuda:0'), nonlinearity=None, **kwargs):
+        super(SingleLayerEncoder, self).__init__()
+        print('In linearEncoder, out_size=', out_size)
+        self.in_size = in_size
+        self.out_size = out_size
+        self.in_layer = Linear(in_size, out_size, bias=False)
+        self.rec_layer = Linear(out_size, out_size, bias=False)
+
+        self.nonlinearity = nonlinearity
+
+        if self.nonlinearity is None:
+            self.activation = Identity()
+        elif self.nonlinearity == 'ReLU':
+            self.activation = ReLU()
+
+        self.device = device
+        self.to(self.device)
+        print('Linear Decoder launched on device :', self.device)
+
+
+    def forward(self, x):
+        x = x.to(self.device)
+        T = x.shape[1]
+        bs = x.shape[0]
+        out = tch.zeros(bs, T, self.out_size).to(self.device)
+
+        state = tch.zeros(bs, self.out_size).to(self.device)
+        for t in range(T):
+            ext = self.in_layer(x[:,t,:])
+            state = self.activation(self.rec_layer(state + ext))
+            out[:, 0, :] = state # Only give non-zero input at first time-step for simplicity
+
+        return out
+
+    def get_internal_states(self, x):
+        x = x.to(self.device)
+        T = x.shape[1]
+        bs = x.shape[0]
+        out = tch.zeros(bs, T, self.out_size).to(self.device)
+        states = tch.zeros(bs, T, self.out_size).to(self.device)
+        currents = tch.zeros(bs, T, self.out_size).to(self.device)
+
+        state = tch.zeros(bs, self.out_size).to(self.device)
+        for t in range(T):
+            ext = self.in_layer(x[:,t,:])
+            current = self.rec_layer(state + ext)
+            state = self.activation(current)
+            out[:, 0, :] = state
+            states[:, t, :] = state
+            currents[:, t, :] = current
+        return states, currents, out
 
 class TensorSequenceEncoder(Module):
     "Map a sequence of encodings into a Tensor encoding of said sequence"
@@ -111,7 +244,7 @@ class TensorSequenceEncoder(Module):
         return tensor_product_rep
 
 class RNNSequenceEncoder(Module):
-    def __init__(self, in_size=128, state_size=1024, out_size=None, orthonormalize=False, bias_out=True, device=tch.device('cuda:0'), **kwargs):
+    def __init__(self, in_size=128, state_size=1024, out_size=None, orthonormalize=False, nonlinearity='ReLU', bias_out=True, device=tch.device('cuda:0'), **kwargs):
         super(RNNSequenceEncoder, self).__init__()
         self.in_size = in_size
         self.state_size = state_size
@@ -123,10 +256,13 @@ class RNNSequenceEncoder(Module):
 
         self.in_layer = Linear(in_size, state_size)
         self.rec_layer = Linear(state_size, state_size)
-        # self.out_layer = Linear(state_size, self.out_size)
         self.out_layer = Linear(state_size, self.out_size, bias=bias_out)
-        self.activation = ReLU()
-
+        
+        if nonlinearity is None:
+            self.activation = Identity()
+        elif nonlinearity == 'ReLU':
+            self.activation = ReLU()
+        
         self.device = device
         self.to(self.device)
 

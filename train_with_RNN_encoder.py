@@ -6,7 +6,6 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt 
 plt.switch_backend('Agg')
 
-# plt.rc('text', usetex=True)
 plt.rc('font', family='serif')
 
 from torch.optim import Adam
