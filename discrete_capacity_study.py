@@ -162,7 +162,7 @@ def run_one_exp(folder, memsize=None, n_dots=None, T=None, n_epochs=50000):
 
     # print(memsize, n_dots, T, state_size)
 
-    env = CircularDots(n_dots=n_dots, T=T, observation_size=observation_size)
+    env = DiscreteDots(n_dots=n_dots, T=T, observation_size=observation_size)
     sequence_encoder = RNNSequenceEncoder(in_size=observation_size, state_size=state_size, out_size=memsize)
     net = Decoder(in_size=memsize, state_size=state_size)
 

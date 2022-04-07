@@ -102,7 +102,7 @@ def plot_capacity(TEMPLATE = 'T_{}_memsize_{}/seed_{}/'):
                 print('t', t,'memsize', memsize)
                 folder = BASE_FOLDER + TEMPLATE.format(t, memsize, seed)
 
-                env = ContinuousCircularDots(T=t, observation_size=observation_size, device=device)
+                env = ContinuousDots(T=t, observation_size=observation_size, device=device)
                 env.load(folder+'environment.pt', map_location=env.device)
                 sequence_encoder = RNNSequenceEncoder(in_size=observation_size, state_size=state_size, out_size=memsize, device=device)
 
@@ -143,7 +143,7 @@ def study_representation(T=5, memsize=24, bs=512, TEMPLATE='T_{}_memsize_{}/seed
 
         os.makedirs(folder+'tuning_curves', exist_ok=True)
 
-        env = ContinuousCircularDots(T=T, observation_size=observation_size, device=device)
+        env = ContinuousDots(T=T, observation_size=observation_size, device=device)
         sequence_encoder = RNNSequenceEncoder(in_size=observation_size, state_size=state_size, out_size=memsize, device=device, bias_out=bias_out)
         print(state_size, sequence_encoder.in_layer, sequence_encoder.state_size)
         dec = Decoder(in_size=memsize, state_size=state_size, device=device)
@@ -439,11 +439,24 @@ def study_representation(T=5, memsize=24, bs=512, TEMPLATE='T_{}_memsize_{}/seed
             fig.savefig(folder+'loading_values/component_{}.pdf'.format(dim))
             plt.close('all')
 
+
+
+
         linreg = LinearRegression()
         all_pos = np.reshape(all_pos, (loadings.shape[0], 2*T))
         linreg.fit(all_pos, loadings[:, :2*T])
+        print(linreg.intercept_)
+        print('linreg WITH intercept training score: {}'.format(linreg.score(all_pos, loadings[:, :2*T])))
+        print('intercept norm: {}'.format(np.sqrt((linreg.intercept_**2).sum(axis=-1))))
+        print('vectors norm: {}'.format(np.mean(np.sqrt((loadings[:, :2*T]**2).sum(axis=-1)), axis=0)))
 
-        print('linear regression training score: {}'.format(linreg.score(all_pos, loadings[:, :2*T])))
+        linreg = LinearRegression(fit_intercept=False)
+        all_pos = np.reshape(all_pos, (loadings.shape[0], 2*T))
+        linreg.fit(all_pos, loadings[:, :2*T])
+        print('linreg WITHOUT intercept training score: {}'.format(linreg.score(all_pos, loadings[:, :2*T])))
+        # print('intercept norm: {}'.format(np.sqrt((linreg.intercept_**2).sum(axis=-1))))
+        print('vectors norm: {}'.format(np.mean(np.sqrt((loadings[:, :2*T]**2).sum(axis=-1)), axis=0)))
+
 
         # Test this end-to-end on the validation data
 
@@ -541,6 +554,6 @@ if __name__ == '__main__':
     # plot_capacity()
     # study_representation(T=5, memsize=24)
     # study_representation(T=7, memsize=32)
-    # study_representation(T=5, memsize=128)
+    study_representation(T=5, memsize=128)
     # study_representation(T=3, memsize=24)
-    study_representation(T=5, memsize=24, TEMPLATE = 'T_{}_memsize_{}_bias_False/seed_{}/', bias_out=False)
+    # study_representation(T=5, memsize=24, TEMPLATE = 'T_{}_memsize_{}_bias_False/seed_{}/', bias_out=False)

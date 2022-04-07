@@ -37,14 +37,14 @@ class ObservationNet(tch.nn.Module):
 
 
 
-class CircularDots(object):
-	"""CircularDots environment class
+class DiscreteDots(object):
+	"""DiscreteDots environment class
 		* n_dots : number of dots on the circle to consider
 		* T : length of sequences (can be overridden)
 
 	"""
 	def __init__(self, n_dots=6, T=3, device=tch.device('cuda:0'), use_obs_net=True, observation_size=128, load_from=None):
-		super(CircularDots, self).__init__()
+		super(DiscreteDots, self).__init__()
 		self.n_dots = n_dots
 		self.dot_angles = np.zeros((n_dots))
 		self.dot_positions = np.zeros((n_dots, 2))
@@ -127,27 +127,10 @@ class CircularDots(object):
 	def load(self, filename, map_location=None):
 		self.observation_net.load_state_dict(tch.load(filename, map_location=self.device))
 
-# TODO: use this to increase T but still keep convergence and see if we keep capacity close to T?
 
-# class SplitDatasetsCircularDots(CircularDots):
-# 	def __init__(self, n_train, n_test, **kwargs):
-# 		super(SplitDatasetsCircularDots, self).__init__(**kwargs)
-
-# 	def training_set_generator(self):
-# 		yield
-
-# 	def test_set_generator(self):
-# 		yield
-
-# class ContinuousDiskDots(CircularDots):
-# 	def __init__(self, n_train, n_test, **kwargs):
-# 		super(ContinuousDiskDots, self).__init__(**kwargs)
-
-
-# For experiments in the continuous 1D and 2D case
-class ContinuousCircularDots(object):
+class ContinuousDots:
 	def __init__(self, T=3, device=tch.device('cuda:0'), use_obs_net=True, observation_size=128, load_from=None, **kwargs):
-		super(ContinuousCircularDots, self).__init__()
+		super(ContinuousDots, self).__init__()
 		self.T = T
 		self.device = device
 		self.observation_size = observation_size
@@ -178,11 +161,50 @@ class ContinuousCircularDots(object):
 	def save(self, filename):
 		tch.save(self.observation_net.state_dict(), filename)
 
-	def load(self, filename, map_location=None):
+	def load(self, filename):
+		# print('In continuousDots load, device is', self.device)
 		self.observation_net.load_state_dict(tch.load(filename, map_location=self.device))	
 		# self.observation_net.load_state_dict(tch.load(filename))	
 
+class ContinuousDotsWithDistractors:
+	def __init__(self, T=3, n_distractors=None, distraction_level=1., device=tch.device('cuda:0'), use_obs_net=True, observation_size=128, load_from=None, **kwargs):
+		super(ContinuousDotsWithDistractors, self).__init__()
+		self.T = T
+		self.device = device
+		self.distraction_level = distraction_level
+		self.observation_size = observation_size
 
+		if n_distractors is None:
+			self.n_distractors = 2
+		else:
+			self.n_distractors = n_distractors
+
+		self.observation_net = ObservationNet(device=device, in_size=2+self.n_distractors, observation_size=observation_size)
+
+		if load_from is not None:
+			self.load(load_from)
+
+
+	def get_sequences(self, bs=64, T=None):
+		if T is None:
+			T = self.T
+
+		angles = 2. * np.pi * tch.rand((bs, T)).to(self.device)
+		positions = tch.zeros((bs, T, 2+self.n_distractors)).to(self.device)
+		positions[:,:,0] = tch.cos(angles)
+		positions[:,:,1] = tch.sin(angles)
+		positions[:,:, 2:] = self.distraction_level * tch.rand(bs, T, self.n_distractors)
+		observations = self.observation_net(positions)
+
+		return observations, positions, None
+
+	def save(self, filename):
+		tch.save(self.observation_net.state_dict(), filename)
+
+	def load(self, filename):
+		# print('In continuousDots load, device is', self.device)
+		self.observation_net.load_state_dict(tch.load(filename, map_location=self.device))	
+		# self.observation_net.load_state_dict(tch.load(filename))	
 
 if __name__ == '__main__':
 	bs = 254
